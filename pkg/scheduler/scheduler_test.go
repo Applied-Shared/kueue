@@ -7862,9 +7862,13 @@ func TestEntryOrdering(t *testing.T) {
 			wantOrder: []string{
 				"preemptor",
 				"old-mid-recently-preempted-in-queue",
+				// old-mid-not-preempted-yet (creation timestamp now+1s) sorts before
+				// the reclaimed workloads whose timestamps are bumped to preemption time + 1ms
+				// (now+6s+1ms and now+7s+1ms respectively). This prevents the re-scheduling
+				// race where a preempted workload re-enters the queue ahead of the preemptor.
+				"old-mid-not-preempted-yet",
 				"old-mid-recently-reclaimed-while-borrowing",
 				"old-mid-more-recently-reclaimed-while-borrowing",
-				"old-mid-not-preempted-yet",
 			},
 		},
 	} {

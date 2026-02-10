@@ -596,6 +596,85 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 				creationOrdering: creationTime,
 			},
 		},
+		"preempted by InCohortReclaimWhileBorrowing": {
+			wl: utiltestingapi.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPreempted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+				}).
+				Obj(),
+			want: map[Ordering]metav1.Time{
+				// Both orderings should return conditionTime + 1ms epsilon
+				evictionOrdering: metav1.NewTime(conditionTime.Add(time.Millisecond)),
+				creationOrdering: metav1.NewTime(conditionTime.Add(time.Millisecond)),
+			},
+		},
+		"preempted by InCohortReclamation": {
+			wl: utiltestingapi.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPreempted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.InCohortReclamationReason,
+				}).
+				Obj(),
+			want: map[Ordering]metav1.Time{
+				// Both orderings should return conditionTime + 1ms epsilon
+				evictionOrdering: metav1.NewTime(conditionTime.Add(time.Millisecond)),
+				creationOrdering: metav1.NewTime(conditionTime.Add(time.Millisecond)),
+			},
+		},
+		"preempted by InClusterQueue - no timestamp bump": {
+			wl: utiltestingapi.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPreempted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.InClusterQueueReason,
+				}).
+				Obj(),
+			want: map[Ordering]metav1.Time{
+				// InClusterQueue preemption does NOT get the timestamp bump
+				evictionOrdering: creationTime,
+				creationOrdering: creationTime,
+			},
+		},
+		"preempted by InCohortFairSharing - no timestamp bump": {
+			wl: utiltestingapi.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPreempted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.InCohortFairSharingReason,
+				}).
+				Obj(),
+			want: map[Ordering]metav1.Time{
+				// FairSharing preemption does NOT get the timestamp bump
+				evictionOrdering: creationTime,
+				creationOrdering: creationTime,
+			},
+		},
+		"preempted condition is False - no timestamp bump": {
+			wl: utiltestingapi.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPreempted,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.InCohortReclamationReason,
+				}).
+				Obj(),
+			want: map[Ordering]metav1.Time{
+				evictionOrdering: creationTime,
+				creationOrdering: creationTime,
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
