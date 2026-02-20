@@ -7,7 +7,7 @@
 #   3. Run this script from the repo root: ./applied/build-and-push.sh
 set -euo pipefail
 
-VERSION=1
+VERSION=2
 
 # --- Derived values ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,11 +49,16 @@ if [ ${#EXISTING[@]} -gt 0 ]; then
     fi
 fi
 
+GIT_COMMIT=$(git -C "$REPO_ROOT" rev-parse HEAD)
+GIT_COMMIT_SHORT=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
+GIT_DIRTY=$(git -C "$REPO_ROOT" diff --quiet && echo "" || echo "-dirty")
+
 echo ""
 echo "=== Building kueue image ==="
-echo "  Branch:    ${BRANCH}"
-echo "  Version:   ${VERSION}"
-echo "  Image tag: ${TAG}"
+echo "  Branch:     ${BRANCH}"
+echo "  Version:    ${VERSION}"
+echo "  Image tag:  ${TAG}"
+echo "  Git commit: ${GIT_COMMIT}${GIT_DIRTY}"
 echo ""
 
 # Build the image locally (amd64 only)
@@ -78,4 +83,5 @@ done
 echo ""
 echo "=== Done ==="
 echo "Image ${TAG} pushed to all environments."
+echo "  Git commit: ${GIT_COMMIT}${GIT_DIRTY}"
 echo "Update kueue_values.yaml tag to: ${TAG}"
