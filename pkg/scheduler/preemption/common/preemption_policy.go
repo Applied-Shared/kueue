@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -29,7 +31,19 @@ import (
 
 const timestampPreemptionBuffer = 5 * time.Minute
 
-func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
+// preemptionProtectionPeriod guarantees every admitted workload at least this
+// much uninterrupted runtime. WorkloadAdmitted's transition time is refreshed
+// on re-admission, so the protection also applies after a preemption/requeue.
+const preemptionProtectionPeriod = time.Hour
+
+func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy, now time.Time) bool {
+	if features.Enabled(features.MinimumPreemptionAge) {
+		admitted := apimeta.FindStatusCondition(candidate.Status.Conditions, kueue.WorkloadAdmitted)
+		if admitted != nil && admitted.Status == metav1.ConditionTrue && now.Sub(admitted.LastTransitionTime.Time) < preemptionProtectionPeriod {
+			return false
+		}
+	}
+
 	preemptorPriority := priority.EffectivePriority(log, preemptor)
 	candidatePriority := priority.EffectivePriority(log, candidate)
 

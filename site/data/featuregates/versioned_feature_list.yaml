@@ -147,6 +147,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: MinimumPreemptionAge
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.17"
 - name: MultiKueue
   versionedSpecs:
   - default: false

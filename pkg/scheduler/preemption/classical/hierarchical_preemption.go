@@ -17,6 +17,8 @@ limitations under the License.
 package classical
 
 import (
+	"time"
+
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -61,6 +63,7 @@ func (m preemptionVariant) PreemptionReason() string {
 
 type HierarchicalPreemptionCtx struct {
 	Log               logr.Logger
+	Now               time.Time
 	Wl                *kueue.Workload
 	Cq                *schdcache.ClusterQueueSnapshot
 	FrsNeedPreemption sets.Set[resources.FlavorResource]
@@ -90,7 +93,7 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
 
-	if !preemptioncommon.SatisfiesPreemptionPolicy(ctx.Log, ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy) {
+	if !preemptioncommon.SatisfiesPreemptionPolicy(ctx.Log, ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy, ctx.Now) {
 		return Never
 	}
 

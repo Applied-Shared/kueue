@@ -705,6 +705,54 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2)
 		})
 
+		ginkgo.It("protects newly admitted workloads from preemption for one hour", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MinimumPreemptionAge, true)
+
+			wlLow := utiltestingapi.MakeWorkload("wl-low-protected", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(0).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlLow)
+			ginkgo.By("admitting the low-priority workload")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlLow)
+
+			wlHigh := utiltestingapi.MakeWorkload("wl-high-preemptor", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(100).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlHigh)
+			ginkgo.By("keeping the high-priority workload pending while the admitted workload is protected")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlHigh)
+			gomega.Consistently(func(g gomega.Gomega) {
+				var got kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLow), &got)).To(gomega.Succeed())
+				evicted := meta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadEvicted)
+				g.Expect(evicted == nil || evicted.Status != metav1.ConditionTrue).To(gomega.BeTrue())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("backdating the admission beyond the protection period")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLow), &got)).To(gomega.Succeed())
+				admitted := meta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadAdmitted)
+				g.Expect(admitted).NotTo(gomega.BeNil())
+				admitted.LastTransitionTime = metav1.NewTime(time.Now().Add(-time.Hour))
+				g.Expect(k8sClient.Status().Update(ctx, &got)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("submitting another high-priority workload after the protection expires")
+			wlHighAfterExpiration := utiltestingapi.MakeWorkload("wl-high-after-protection", ns.Name).
+				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Priority(100).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlHighAfterExpiration)
+
+			ginkgo.By("preempting the workload after its protection expires")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlLow)
+		})
+
 		ginkgo.When("Hold LocalQueue at startup", func() {
 			ginkgo.BeforeEach(func() {
 				lqsStopPolicy = ptr.To(kueue.Hold)
