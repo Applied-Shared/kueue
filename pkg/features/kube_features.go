@@ -330,6 +330,13 @@ const (
 	// allowing external controllers to adjust a workload's effective priority.
 	PriorityBoost featuregate.Feature = "PriorityBoost"
 
+	// owner: @eddy-chu-ai
+	//
+	// Protects newly admitted and re-admitted workloads from preemption for
+	// one hour, allowing them to make progress before becoming
+	// eligible as preemption candidates.
+	MinimumPreemptionAge featuregate.Feature = "MinimumPreemptionAge"
+
 	// owner: @VassilisVassiliadis
 	//
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/6915-scheduling-gated-by-annotation
@@ -547,6 +554,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	PriorityBoost: {
+		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MinimumPreemptionAge: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	AdmissionGatedBy: {

@@ -38,6 +38,15 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 
 	preemptor := utiltestingapi.MakeWorkload("preemptor", metav1.NamespaceDefault)
 	candidate := utiltestingapi.MakeWorkload("candidate", metav1.NamespaceDefault)
+	withAdmittedCondition := func(w *kueue.Workload, status metav1.ConditionStatus, admittedAt time.Time) *kueue.Workload {
+		w.Status.Conditions = []metav1.Condition{{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             status,
+			LastTransitionTime: metav1.NewTime(admittedAt),
+			Reason:             "ByTest",
+		}}
+		return w
+	}
 
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -160,6 +169,45 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			policy: kueue.PreemptionPolicyAny,
 			want:   true,
 		},
+		"Any: recently admitted candidate is protected": {
+			featureGates: map[featuregate.Feature]bool{features.MinimumPreemptionAge: true},
+			preemptor:    preemptor.Clone().Priority(100).Obj(),
+			candidate: withAdmittedCondition(candidate.Clone().Priority(0).Obj(), metav1.ConditionTrue,
+				now.Add(-preemptionProtectionPeriod+time.Minute)),
+			policy: kueue.PreemptionPolicyAny,
+			want:   false,
+		},
+		"Any: recently admitted candidate is not protected when feature is disabled": {
+			preemptor: preemptor.Clone().Priority(100).Obj(),
+			candidate: withAdmittedCondition(candidate.Clone().Priority(0).Obj(), metav1.ConditionTrue,
+				now.Add(-time.Minute)),
+			policy: kueue.PreemptionPolicyAny,
+			want:   true,
+		},
+		"Any: candidate at protection boundary can be preempted": {
+			featureGates: map[featuregate.Feature]bool{features.MinimumPreemptionAge: true},
+			preemptor:    preemptor.Clone().Priority(100).Obj(),
+			candidate: withAdmittedCondition(candidate.Clone().Priority(0).Obj(), metav1.ConditionTrue,
+				now.Add(-preemptionProtectionPeriod)),
+			policy: kueue.PreemptionPolicyAny,
+			want:   true,
+		},
+		"LowerPriority: re-admission protects an old workload again": {
+			featureGates: map[featuregate.Feature]bool{features.MinimumPreemptionAge: true},
+			preemptor:    preemptor.Clone().Priority(100).Obj(),
+			candidate: withAdmittedCondition(candidate.Clone().Priority(0).Creation(now.Add(-24*time.Hour)).Obj(),
+				metav1.ConditionTrue, now.Add(-time.Minute)),
+			policy: kueue.PreemptionPolicyLowerPriority,
+			want:   false,
+		},
+		"Any: non-admitted candidate is not protected": {
+			featureGates: map[featuregate.Feature]bool{features.MinimumPreemptionAge: true},
+			preemptor:    preemptor.Clone().Priority(100).Obj(),
+			candidate: withAdmittedCondition(candidate.Clone().Priority(0).Obj(), metav1.ConditionFalse,
+				now.Add(-time.Minute)),
+			policy: kueue.PreemptionPolicyAny,
+			want:   true,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -167,7 +215,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ordering := workload.Ordering{}
-			got := SatisfiesPreemptionPolicy(log, tc.preemptor, tc.candidate, ordering, tc.policy)
+			got := SatisfiesPreemptionPolicy(log, tc.preemptor, tc.candidate, ordering, tc.policy, now)
 			if got != tc.want {
 				t.Errorf("SatisfiesPreemptionPolicy() = %v, want %v", got, tc.want)
 			}
