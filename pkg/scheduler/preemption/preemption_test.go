@@ -4178,6 +4178,103 @@ func TestPreemption(t *testing.T) {
 	}
 }
 
+func TestWorkloadFitsOnlyChecksBorrowingForResourcesNeedingPreemption(t *testing.T) {
+	const gpuResource corev1.ResourceName = "nvidia.com/gpu"
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{}).Build()
+	cqCache := schdcache.New(cl)
+	cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	for _, cq := range []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("preemptor").
+			Cohort("cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "0", "1").
+				Resource(gpuResource, "1").
+				Obj()).
+			Obj(),
+		utiltestingapi.MakeClusterQueue("donor").
+			Cohort("cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "1").
+				Resource(gpuResource, "0").
+				Obj()).
+			Obj(),
+	} {
+		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("couldn't add ClusterQueue %q to cache: %v", cq.Name, err)
+		}
+	}
+	if err := cqCache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort").Obj()); err != nil {
+		t.Fatalf("couldn't add Cohort to cache: %v", err)
+	}
+	snapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("couldn't build snapshot: %v", err)
+	}
+	preemptorCQ := snapshot.ClusterQueue("preemptor")
+	cpu := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	gpu := resources.FlavorResource{Flavor: "default", Resource: gpuResource}
+	if !preemptorCQ.BorrowingWith(cpu, resources.NewAmount(1000)) {
+		t.Fatal("test setup does not borrow CPU")
+	}
+	if got := preemptorCQ.Available(cpu); got.Cmp(resources.NewAmount(1000)) < 0 {
+		t.Fatalf("test setup has insufficient borrowable CPU: got %s, want at least 1", got)
+	}
+	if got := preemptorCQ.Available(gpu); got.Cmp(resources.NewAmount(1)) < 0 {
+		t.Fatalf("test setup has insufficient GPU quota: got %s, want at least 1", got)
+	}
+
+	preemptor := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "ns").
+		Request(corev1.ResourceCPU, "1").
+		Request(gpuResource, "1").
+		Obj())
+	preemptor.ClusterQueue = preemptorCQ.Name
+	workloadUsage := workload.Usage{Quota: resources.FlavorResourceQuantities{
+		cpu: resources.NewAmount(1000),
+		gpu: resources.NewAmount(1),
+	}}
+	cases := map[string]struct {
+		cpuMode flavorassigner.FlavorAssignmentMode
+		wantFit bool
+	}{
+		"allows borrowing an unrelated requested resource": {
+			cpuMode: flavorassigner.Fit,
+			wantFit: true,
+		},
+		"still rejects borrowing a resource that needs preemption": {
+			cpuMode: flavorassigner.Preempt,
+			wantFit: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: tc.cpuMode,
+				},
+				gpuResource: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			})
+			preemptionContext := &preemptionCtx{
+				ctx:               ctx,
+				log:               log,
+				preemptor:         *preemptor,
+				preemptorCQ:       preemptorCQ,
+				snapshot:          snapshot,
+				workloadUsage:     workloadUsage,
+				frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
+			}
+			if got := workloadFits(preemptionContext, false); got != tc.wantFit {
+				t.Errorf("workloadFits(..., false) = %t, want %t", got, tc.wantFit)
+			}
+		})
+	}
+}
+
 func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	rf := utiltestingapi.MakeResourceFlavor("default").Obj()

@@ -2066,6 +2066,75 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 	}
 }
 
+func TestGetQueueOrderTimestampAfterCohortPreemption(t *testing.T) {
+	creationTime := metav1.NewTime(time.Now().Truncate(time.Second))
+	preemptedTime := metav1.NewTime(creationTime.Add(time.Hour))
+	queueOrderTime := metav1.NewTime(preemptedTime.Add(time.Millisecond))
+
+	cases := map[string]struct {
+		reason                      string
+		status                      metav1.ConditionStatus
+		prioritySortingWithinCohort bool
+		wantTime                    metav1.Time
+	}{
+		"reclaim while borrowing with priority sorting disabled": {
+			reason:                      kueue.InCohortReclaimWhileBorrowingReason,
+			status:                      metav1.ConditionTrue,
+			prioritySortingWithinCohort: false,
+			wantTime:                    queueOrderTime,
+		},
+		"reclaim while borrowing with priority sorting enabled": {
+			reason:                      kueue.InCohortReclaimWhileBorrowingReason,
+			status:                      metav1.ConditionTrue,
+			prioritySortingWithinCohort: true,
+			wantTime:                    queueOrderTime,
+		},
+		"reclamation with priority sorting disabled": {
+			reason:                      kueue.InCohortReclamationReason,
+			status:                      metav1.ConditionTrue,
+			prioritySortingWithinCohort: false,
+			wantTime:                    queueOrderTime,
+		},
+		"reclamation with priority sorting enabled": {
+			reason:                      kueue.InCohortReclamationReason,
+			status:                      metav1.ConditionTrue,
+			prioritySortingWithinCohort: true,
+			wantTime:                    queueOrderTime,
+		},
+		"preemption within a ClusterQueue keeps creation order": {
+			reason:                      kueue.InClusterQueueReason,
+			status:                      metav1.ConditionTrue,
+			prioritySortingWithinCohort: true,
+			wantTime:                    creationTime,
+		},
+		"cleared preemption condition keeps creation order": {
+			reason:                      kueue.InCohortReclamationReason,
+			status:                      metav1.ConditionFalse,
+			prioritySortingWithinCohort: false,
+			wantTime:                    creationTime,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySortingWithinCohort)
+
+			wl := utiltestingapi.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPreempted,
+					Status:             tc.status,
+					Reason:             tc.reason,
+					LastTransitionTime: preemptedTime,
+				}).
+				Obj()
+			gotTime := (Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp}).GetQueueOrderTimestamp(wl)
+			if diff := cmp.Diff(tc.wantTime, *gotTime); diff != "" {
+				t.Errorf("Unexpected queue order time (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReclaimablePodsAreEqual(t *testing.T) {
 	cases := map[string]struct {
 		a, b       []kueue.ReclaimablePod

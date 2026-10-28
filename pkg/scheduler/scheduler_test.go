@@ -8596,9 +8596,9 @@ func TestEntryOrdering(t *testing.T) {
 			wantOrder: []string{
 				"preemptor",
 				"old-mid-recently-preempted-in-queue",
+				"old-mid-not-preempted-yet",
 				"old-mid-recently-reclaimed-while-borrowing",
 				"old-mid-more-recently-reclaimed-while-borrowing",
-				"old-mid-not-preempted-yet",
 			},
 		},
 		{
