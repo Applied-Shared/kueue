@@ -30,13 +30,15 @@ import (
 const timestampPreemptionBuffer = 5 * time.Minute
 
 func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
+	if policy == kueue.PreemptionPolicyLowerPriority {
+		// Eligibility uses original priority. Boosts still rank eligible victims,
+		// but aging must not make equal-priority incumbents eligible for eviction.
+		return priority.Priority(preemptor) > priority.Priority(candidate)
+	}
 	preemptorPriority := priority.EffectivePriority(log, preemptor)
 	candidatePriority := priority.EffectivePriority(log, candidate)
 
 	lowerPriority := preemptorPriority > candidatePriority
-	if policy == kueue.PreemptionPolicyLowerPriority {
-		return lowerPriority
-	}
 	if policy == kueue.PreemptionPolicyLowerOrNewerEqualPriority {
 		preemptorTS := workloadOrdering.GetQueueOrderTimestamp(preemptor)
 		candidateTS := workloadOrdering.GetQueueOrderTimestamp(candidate)

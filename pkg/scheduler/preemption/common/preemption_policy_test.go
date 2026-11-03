@@ -106,7 +106,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			policy:    kueue.PreemptionPolicyNever,
 			want:      false,
 		},
-		"LowerPriority: boost makes low-priority immune to medium-priority preemption": {
+		"LowerPriority: candidate boost does not protect lower base priority": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PriorityBoost: true,
 			},
@@ -114,9 +114,9 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			candidate: candidate.Clone().Priority(100).
 				Annotation(controllerconstants.PriorityBoostAnnotationKey, "150").Obj(),
 			policy: kueue.PreemptionPolicyLowerPriority,
-			want:   false,
+			want:   true,
 		},
-		"LowerPriority: boost on preemptor enables preemption of higher raw priority": {
+		"LowerPriority: preemptor boost does not allow higher base priority eviction": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PriorityBoost: true,
 			},
@@ -124,7 +124,14 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 				Annotation(controllerconstants.PriorityBoostAnnotationKey, "200").Obj(),
 			candidate: candidate.Clone().Priority(200).Obj(),
 			policy:    kueue.PreemptionPolicyLowerPriority,
-			want:      true,
+			want:      false,
+		},
+		"LowerPriority: aged equal-base-priority candidate remains ineligible": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			preemptor:    preemptor.Clone().Priority(0).Obj(),
+			candidate:    candidate.Clone().Priority(0).Annotation(controllerconstants.PriorityBoostAnnotationKey, "-25").Obj(),
+			policy:       kueue.PreemptionPolicyLowerPriority,
+			want:         false,
 		},
 		"LowerOrNewerEqualPriority: boost equalizes priorities, older preemptor can preempt newer candidate": {
 			featureGates: map[featuregate.Feature]bool{
