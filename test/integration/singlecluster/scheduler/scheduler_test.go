@@ -653,10 +653,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 		})
 
-		ginkgo.It("when PriorityBoost is enabled, boosting a low-priority pending workload preempts the running workload", func() {
+		ginkgo.It("when PriorityBoost is enabled, boosting pending work changes admission order but not same-queue eligibility", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
 			const lowPrio, midPrio = 0, 10
-			// preemptionClusterQ has 3 CPU and allows within-cluster preemption by effective priority
+			// The Applied fork uses base priority for same-queue LowerPriority eligibility.
 			wlMid1 := utiltestingapi.MakeWorkload("wl-mid-1", ns.Name).
 				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
 				Request(corev1.ResourceCPU, "2").
@@ -695,11 +695,18 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(k8sClient.Update(ctx, &wl)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("boosted workload preempts the running workload")
-			behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlMid1)
-			ginkgo.By("finish eviction so the slot is freed and boosted workload can be admitted")
-			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlMid1)
-			ginkgo.By("boosted workload is admitted")
+			ginkgo.By("boosting does not permit lower base priority to preempt running work")
+			gomega.Consistently(func(g gomega.Gomega) {
+				var running kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlMid1), &running)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&running)).To(gomega.BeTrue())
+				g.Expect(meta.IsStatusConditionTrue(running.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2, wlLow)
+
+			ginkgo.By("finishing running work frees capacity without preemption")
+			integration.FinishWorkloads(ctx, k8sClient, wlMid1)
+			ginkgo.By("the boosted workload is admitted before the unboosted pending workload")
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, preemptionClusterQ.Name, wlLow)
 			ginkgo.By("verify the second mid priority workload is still pending")
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlMid2)

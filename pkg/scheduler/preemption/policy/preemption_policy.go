@@ -29,7 +29,13 @@ import (
 
 const timestampPreemptionBuffer = 5 * time.Minute
 
-func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
+// SatisfiesPreemptionPolicy uses base priority for same-ClusterQueue LowerPriority
+// eligibility in the Applied fork. Other scopes and policies use effective priority.
+func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy, sameClusterQueue bool) bool {
+	if policy == kueue.PreemptionPolicyLowerPriority && sameClusterQueue {
+		return priority.Priority(preemptor) > priority.Priority(candidate)
+	}
+
 	preemptorPriority := priority.EffectivePriority(log, preemptor)
 	candidatePriority := priority.EffectivePriority(log, candidate)
 

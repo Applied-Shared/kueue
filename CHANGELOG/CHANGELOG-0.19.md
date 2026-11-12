@@ -13,6 +13,7 @@ Changes since `v0.19.9`:
 
 ### Feature
 
+- Scheduling: In the Applied fork, `withinClusterQueue: LowerPriority` compares base priorities for all ClusterQueues, so priority boosts cannot enable same-user-priority preemption. Boosts still affect admission and victim ordering; cross-queue eligibility and other preemption policies retain upstream behavior.
 - Scheduling: Improved classical preemption performance by reusing candidate ordering and generating candidates on demand. Enable it with the alpha `ClassicalPreemptionCandidateOrderCache` feature gate (disabled by default). (#17295, @zhengchenyu)
 
 ### Bug or Regression

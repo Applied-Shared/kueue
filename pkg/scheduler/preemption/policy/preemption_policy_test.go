@@ -40,11 +40,12 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 	candidate := utiltestingapi.MakeWorkload("candidate", metav1.NamespaceDefault)
 
 	testCases := map[string]struct {
-		featureGates map[featuregate.Feature]bool
-		preemptor    *kueue.Workload
-		candidate    *kueue.Workload
-		policy       kueue.PreemptionPolicy
-		want         bool
+		featureGates     map[featuregate.Feature]bool
+		preemptor        *kueue.Workload
+		candidate        *kueue.Workload
+		policy           kueue.PreemptionPolicy
+		sameClusterQueue bool
+		want             bool
 	}{
 		"LowerPriority: preemptor has higher priority": {
 			preemptor: preemptor.Clone().Priority(10).Obj(),
@@ -106,7 +107,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			policy:    kueue.PreemptionPolicyNever,
 			want:      false,
 		},
-		"LowerPriority: boost makes low-priority immune to medium-priority preemption": {
+		"LowerPriority across ClusterQueues: boost protects low base priority": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PriorityBoost: true,
 			},
@@ -116,7 +117,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			policy: kueue.PreemptionPolicyLowerPriority,
 			want:   false,
 		},
-		"LowerPriority: boost on preemptor enables preemption of higher raw priority": {
+		"LowerPriority across ClusterQueues: boost enables higher raw priority preemption": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PriorityBoost: true,
 			},
@@ -125,6 +126,42 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			candidate: candidate.Clone().Priority(200).Obj(),
 			policy:    kueue.PreemptionPolicyLowerPriority,
 			want:      true,
+		},
+		"LowerPriority within ClusterQueue ignores victim boost": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			preemptor:    preemptor.Clone().Priority(200).Obj(),
+			candidate: candidate.Clone().Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "150").Obj(),
+			policy:           kueue.PreemptionPolicyLowerPriority,
+			sameClusterQueue: true,
+			want:             true,
+		},
+		"LowerPriority within ClusterQueue ignores preemptor boost": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			preemptor: preemptor.Clone().Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "200").Obj(),
+			candidate:        candidate.Clone().Priority(200).Obj(),
+			policy:           kueue.PreemptionPolicyLowerPriority,
+			sameClusterQueue: true,
+			want:             false,
+		},
+		"LowerPriority within ClusterQueue rejects an age-demoted equal-priority victim": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			preemptor:    preemptor.Clone().Priority(100).Obj(),
+			candidate: candidate.Clone().Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "-25").Obj(),
+			policy:           kueue.PreemptionPolicyLowerPriority,
+			sameClusterQueue: true,
+			want:             false,
+		},
+		"LowerOrNewerEqualPriority within ClusterQueue keeps boosted eligibility": {
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
+			preemptor: preemptor.Clone().Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "200").Obj(),
+			candidate:        candidate.Clone().Priority(200).Obj(),
+			policy:           kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+			sameClusterQueue: true,
+			want:             true,
 		},
 		"LowerOrNewerEqualPriority: boost equalizes priorities, older preemptor can preempt newer candidate": {
 			featureGates: map[featuregate.Feature]bool{
@@ -167,7 +204,7 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ordering := workload.Ordering{}
-			got := SatisfiesPreemptionPolicy(log, tc.preemptor, tc.candidate, ordering, tc.policy)
+			got := SatisfiesPreemptionPolicy(log, tc.preemptor, tc.candidate, ordering, tc.policy, tc.sameClusterQueue)
 			if got != tc.want {
 				t.Errorf("SatisfiesPreemptionPolicy() = %v, want %v", got, tc.want)
 			}
