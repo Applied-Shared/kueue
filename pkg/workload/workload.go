@@ -405,7 +405,7 @@ func (i *Info) rebuildTotalRequests(options *InfoOptions) {
 }
 
 // computeSchedulingHash returns a deterministic hash of the workload's
-// scheduling-relevant shape: effective workload priority, pod spec (via
+// scheduling-relevant shape: base and effective workload priority, pod spec (via
 // SpecShape), effective count, total and per-Pod requests, minCount, and
 // topologyRequest per PodSet.
 func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources, specs []corev1.PodSpec) EquivalenceHash {
@@ -442,9 +442,12 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 		}
 		podSetShapes = append(podSetShapes, podSetShape)
 	}
+	// Equal effective priorities can differ in same-queue preemption eligibility,
+	// which uses base priority in the Applied fork.
 	shape := map[string]any{
-		"podSets":  podSetShapes,
-		"priority": effectivePriority,
+		"podSets":      podSetShapes,
+		"priority":     effectivePriority,
+		"basePriority": priority.Priority(wl),
 	}
 	if features.Enabled(features.ConcurrentAdmission) {
 		if val, ok := wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]; ok {
