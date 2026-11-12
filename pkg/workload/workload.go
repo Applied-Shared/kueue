@@ -443,7 +443,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 		podSetShapes = append(podSetShapes, podSetShape)
 	}
 	// Equal effective priorities can differ in same-queue preemption eligibility,
-	// which uses base priority in the Applied fork.
+	// which uses base priority.
 	shape := map[string]any{
 		"podSets":      podSetShapes,
 		"priority":     effectivePriority,

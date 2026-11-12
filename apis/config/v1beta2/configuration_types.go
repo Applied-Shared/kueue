@@ -774,7 +774,7 @@ type FairSharing struct {
 	//   workload to be preempted.
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
-	//   least recent quota reservation first in the Applied fork.
+	//   least recent quota reservation first.
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies"`
 }
 

@@ -39,7 +39,7 @@ import (
 // same ClusterQueue as the preemptor.
 // 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
 // 3. Workloads with lower priority first.
-// 4. Workloads with the least recent quota reservation first (Applied fork).
+// 4. Workloads with the least recent quota reservation first.
 func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) int {
 	return cmputil.LazyOr(
 		func() int {

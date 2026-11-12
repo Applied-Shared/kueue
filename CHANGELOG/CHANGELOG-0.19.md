@@ -13,8 +13,8 @@ Changes since `v0.19.9`:
 
 ### Feature
 
-- Scheduling: In the Applied fork, preemption candidates with equal effective priority and otherwise equal ordering criteria are ordered by least recent quota reservation first, in both classical and Fair Sharing preemption. Eligibility rules and earlier ordering criteria are unchanged.
-- Scheduling: In the Applied fork, `withinClusterQueue: LowerPriority` compares base priorities for all ClusterQueues, so priority boosts cannot enable same-user-priority preemption. Boosts still affect admission and victim ordering; cross-queue eligibility and other preemption policies retain upstream behavior.
+- Scheduling: Preemption candidates with equal effective priority and otherwise equal ordering criteria are ordered by least recent quota reservation first, in both classical and Fair Sharing preemption. Eligibility rules and earlier ordering criteria are unchanged.
+- Scheduling: `withinClusterQueue: LowerPriority` compares base priorities for all ClusterQueues, so priority boosts cannot enable same-user-priority preemption. Boosts still affect admission and victim ordering; cross-queue eligibility and other preemption policies remain unchanged.
 - Scheduling: Improved classical preemption performance by reusing candidate ordering and generating candidates on demand. Enable it with the alpha `ClassicalPreemptionCandidateOrderCache` feature gate (disabled by default). (#17295, @zhengchenyu)
 
 ### Bug or Regression

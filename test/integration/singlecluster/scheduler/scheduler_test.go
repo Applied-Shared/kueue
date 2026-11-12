@@ -656,7 +656,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.It("when PriorityBoost is enabled, boosting pending work changes admission order but not same-queue eligibility", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PriorityBoost, true)
 			const lowPrio, midPrio = 0, 10
-			// The Applied fork uses base priority for same-queue LowerPriority eligibility.
+			// Same-queue LowerPriority eligibility uses base priority.
 			wlMid1 := utiltestingapi.MakeWorkload("wl-mid-1", ns.Name).
 				Queue(kueue.LocalQueueName(preemptionQueue.Name)).
 				Request(corev1.ResourceCPU, "2").

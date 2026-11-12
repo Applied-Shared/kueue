@@ -30,8 +30,8 @@ import (
 const timestampPreemptionBuffer = 5 * time.Minute
 
 // SatisfiesPreemptionPolicy uses base priority for same-ClusterQueue LowerPriority
-// eligibility in the Applied fork. Other scopes and policies use effective priority.
-// Supported Applied deployments must keep effective-priority ranges for
+// eligibility. Other scopes and policies use effective priority.
+// Supported deployments must keep effective-priority ranges for
 // distinct base-priority classes strictly ordered, without ties. A sufficient
 // bound is maxBoost-minBoost < the minimum gap between base priorities.
 func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy, sameClusterQueue bool) bool {
