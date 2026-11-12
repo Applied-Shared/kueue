@@ -17,10 +17,13 @@ limitations under the License.
 package scheduler
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -30,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("Applied base-priority preemption", func() {
+var _ = ginkgo.Describe("Applied preemption", func() {
 	var (
 		ns     *corev1.Namespace
 		flavor *kueue.ResourceFlavor
@@ -78,6 +81,49 @@ var _ = ginkgo.Describe("Applied base-priority preemption", func() {
 			g.Expect(apimeta.IsStatusConditionTrue(current.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
 		}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.DescribeTable("prefers the least recent quota reservation among equal-priority victims", func(orderCache bool) {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ClassicalPreemptionCandidateOrderCache, orderCache)
+		older := utiltestingapi.MakeWorkload("older", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).Priority(0).
+			Request(corev1.ResourceCPU, "500m").Obj()
+		behavioral.MustCreate(ctx, k8sClient, older)
+		behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, older)
+
+		// Separate reservation timestamps without relying on wall-clock sleeps.
+		gomega.Eventually(func(g gomega.Gomega) {
+			var current kueue.Workload
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(older), &current)).To(gomega.Succeed())
+			patch := client.MergeFromWithOptions(current.DeepCopy(), client.MergeFromWithOptimisticLock{})
+			condition := apimeta.FindStatusCondition(current.Status.Conditions, kueue.WorkloadQuotaReserved)
+			g.Expect(condition).NotTo(gomega.BeNil())
+			condition.LastTransitionTime = metav1.NewTime(time.Now().Add(-time.Hour))
+			g.Expect(k8sClient.Status().Patch(ctx, &current, patch)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		newer := utiltestingapi.MakeWorkload("newer", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).Priority(0).
+			Request(corev1.ResourceCPU, "500m").Obj()
+		behavioral.MustCreate(ctx, k8sClient, newer)
+		behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, newer)
+
+		higher := utiltestingapi.MakeWorkload("higher", ns.Name).
+			Queue(kueue.LocalQueueName(queue.Name)).Priority(100).
+			Request(corev1.ResourceCPU, "500m").Obj()
+		behavioral.MustCreate(ctx, k8sClient, higher)
+		behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, older)
+		behavioral.FinishEvictionForWorkloads(ctx, k8sClient, older)
+		behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, higher)
+		gomega.Consistently(func(g gomega.Gomega) {
+			var current kueue.Workload
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newer), &current)).To(gomega.Succeed())
+			g.Expect(apimeta.IsStatusConditionTrue(current.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeTrue())
+			g.Expect(apimeta.IsStatusConditionTrue(current.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+		}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	},
+		ginkgo.Entry("without candidate-order cache", false),
+		ginkgo.Entry("with candidate-order cache", true),
+	)
 
 	ginkgo.It("allows higher user priority to replace lower-priority work with an age-protection boost", func() {
 		incumbent := utiltestingapi.MakeWorkload("incumbent", ns.Name).

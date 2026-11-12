@@ -89,7 +89,7 @@ The list of candidates is sorted based on the following preference checks for
 tie-breaking:
 - Workloads from borrowing queues in the cohort
 - Workloads with the lowest priority
-- Workloads which got admitted the most recently.
+- Workloads with the least recent quota reservation (Applied fork).
 
 ### Targets
 

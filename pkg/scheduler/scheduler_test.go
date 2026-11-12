@@ -9309,17 +9309,12 @@ func TestLastSchedulingContext(t *testing.T) {
 			},
 			deleteWorkloads: []client.ObjectKey{{
 				Namespace: metav1.NamespaceDefault,
-				Name:      "alpha2",
+				Name:      "alpha1",
 			}},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("alpha1", "default").
 					Request(corev1.ResourceCPU, "22").
 					SimpleReserveQuota("eng-cohort-alpha", "on-demand", now.Add(-time.Second)).
-					AdmittedAt(true, now).
-					Obj(),
-				*utiltestingapi.MakeWorkload("alpha2", "default").
-					Request(corev1.ResourceCPU, "22").
-					SimpleReserveQuota("eng-cohort-alpha", "on-demand", now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -9336,6 +9331,11 @@ func TestLastSchedulingContext(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("alpha2", "default").
+					Request(corev1.ResourceCPU, "22").
+					SimpleReserveQuota("eng-cohort-alpha", "on-demand", now).
+					AdmittedAt(true, now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("alpha3", "default").
 					Request(corev1.ResourceCPU, "22").
@@ -9375,7 +9375,7 @@ func TestLastSchedulingContext(t *testing.T) {
 					Obj(),
 			},
 			wantAdmissionsOnSecondSchedule: map[workload.Reference]kueue.Admission{
-				"default/alpha1": *utiltestingapi.MakeAdmission("eng-cohort-alpha").
+				"default/alpha2": *utiltestingapi.MakeAdmission("eng-cohort-alpha").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(corev1.ResourceCPU, "on-demand", "22").
 						Obj()).
