@@ -90,7 +90,8 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
 
-	if !policy.SatisfiesPreemptionPolicy(ctx.Log, ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy) {
+	sameClusterQueue := wl.ClusterQueue == ctx.Cq.Name
+	if !policy.SatisfiesPreemptionPolicy(ctx.Log, ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy, sameClusterQueue) {
 		return Never
 	}
 

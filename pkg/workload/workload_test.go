@@ -4042,6 +4042,34 @@ func TestSchedulingHash(t *testing.T) {
 				features.PriorityBoost:                true,
 			},
 		},
+		"same effective priority but different base priority": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Priority(0).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Priority(100).
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.PriorityBoost:                true,
+			},
+		},
+		"disabled priority boost does not affect the hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Priority(100).
+				Annotation(controllerconstants.PriorityBoostAnnotationKey, "100").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Priority(100).
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.PriorityBoost:                false,
+			},
+		},
 		"same spec, different allowed flavors annotation, concurrent admission enabled produces different hash": {
 			wl1: func() *kueue.Workload {
 				wl := utiltestingapi.MakeWorkload("wl1", "ns").

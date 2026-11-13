@@ -2312,7 +2312,7 @@ func TestPreemption(t *testing.T) {
 					Obj(),
 			},
 		},
-		"preempt newer workloads with the same priority": {
+		"preempt least recently quota-reserved workload among equal-priority candidates": {
 			clusterQueues: defaultClusterQueues,
 			admitted: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl1", "").
@@ -2337,7 +2337,7 @@ func TestPreemption(t *testing.T) {
 								Assignment(corev1.ResourceCPU, "default", "2").
 								Obj()).
 							Obj(),
-						now.Add(time.Second),
+						now.Add(-time.Second),
 					).
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl3", "").
@@ -2400,7 +2400,7 @@ func TestPreemption(t *testing.T) {
 								Assignment(corev1.ResourceCPU, "default", "2").
 								Obj()).
 							Obj(),
-						now.Add(time.Second),
+						now.Add(-time.Second),
 					).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -4843,7 +4843,7 @@ func TestCandidatesOrdering(t *testing.T) {
 			},
 			wantCandidates: []workload.Reference{"other", "preemptorCq"},
 		},
-		"old workloads last": {
+		"least recent quota reservation first": {
 			candidates: []workload.Info{
 				*workload.NewInfo(log, utiltestingapi.MakeWorkload("older", "").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now.Add(-time.Second)).
@@ -4855,7 +4855,47 @@ func TestCandidatesOrdering(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
 					Obj()),
 			},
-			wantCandidates: []workload.Reference{"younger", "current", "older"},
+			wantCandidates: []workload.Reference{"older", "current", "younger"},
+		},
+		"quota reservation time takes precedence over creation time": {
+			candidates: []workload.Info{
+				*workload.NewInfo(log, utiltestingapi.MakeWorkload("created-first", "").
+					Creation(now.Add(-time.Hour)).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
+					Obj()),
+				*workload.NewInfo(log, utiltestingapi.MakeWorkload("reserved-first", "").
+					Creation(now.Add(-time.Minute)).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now.Add(-time.Minute)).
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"reserved-first", "created-first"},
+		},
+		"equal reservation times use UID order": {
+			candidates: []workload.Info{
+				*workload.NewInfo(log, utiltestingapi.MakeWorkload("larger-uid", "").UID("b").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
+					Obj()),
+				*workload.NewInfo(log, utiltestingapi.MakeWorkload("smaller-uid", "").UID("a").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"smaller-uid", "larger-uid"},
+		},
+		"missing or false reservation condition uses current time": {
+			candidates: []workload.Info{
+				*workload.NewInfo(log, utiltestingapi.MakeWorkload("missing", "").UID("a").
+					Admission(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj()).Obj()),
+				*workload.NewInfo(log, utiltestingapi.MakeWorkload("false", "").UID("b").
+					Admission(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj()).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now.Add(-time.Hour)),
+					}).Obj()),
+				*workload.NewInfo(log, utiltestingapi.MakeWorkload("reserved", "").UID("c").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now.Add(-time.Minute)).
+					Obj()),
+			},
+			wantCandidates: []workload.Reference{"reserved", "missing", "false"},
 		},
 		"workloads with higher LQ usage first": {
 			candidates: []workload.Info{
@@ -4882,17 +4922,19 @@ func TestCandidatesOrdering(t *testing.T) {
 			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		}}
 
-	for _, tc := range cases {
-		features.SetFeatureGatesDuringTest(t, tc.featureGates)
-		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
-			return policy.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
+				return policy.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
+			})
+			got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
+				return workload.Reference(c.Obj.Name)
+			})
+			if diff := cmp.Diff(tc.wantCandidates, got); diff != "" {
+				t.Errorf("Sorted with wrong order (-want,+got):\n%s", diff)
+			}
 		})
-		got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
-			return workload.Reference(c.Obj.Name)
-		})
-		if diff := cmp.Diff(tc.wantCandidates, got); diff != "" {
-			t.Errorf("Sorted with wrong order (-want,+got):\n%s", diff)
-		}
 	}
 }
 
